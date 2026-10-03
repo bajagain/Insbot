@@ -1,0 +1,17 @@
+{
+  "profiles": {
+    "example": {
+      "username": "example",
+      "displayName": "Example User",
+      "biography": "Building cool things.",
+      "profilePictureUrl": "https://...",
+      "followers": 12000,
+      "following": 321,
+      "postsCount": 45,
+      "verified": false,
+      "website": null,
+      "profileUrl": "https://instagram.com/example/",
+      "retrievedAt": "2026-10-03T12:00:00.000Z"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Runtime / user data — never commit
+data/*.json
+data/*.tmp
+data/backups/
+
+# Secrets
+.env
+.env.local
+.env.*.local

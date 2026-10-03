@@ -1,1226 +1,447 @@
-Build Insbit — JSON-Only Discord Instagram Public Profile Viewer
+# Insbit
 
-1. Project Overview
+**Insbit** is a GUI-first Discord bot for viewing information that is **legitimately
+available from public Instagram profiles** through the **Dosco** data source.
 
-Build a production-quality Discord bot called Insbit using Node.js + TypeScript + discord.js.
+It is built with **Node.js + TypeScript + discord.js** and stores **all persistent
+application data in local JSON files**. There is **no PostgreSQL, MySQL, MongoDB, Redis,
+Prisma, or any external database or cache server.**
 
-Insbit is a GUI-first Discord bot for viewing information legitimately available from public Instagram profiles through an authorized/permitted data source.
-
-The bot must have:
-
-- NO PostgreSQL
-- NO MySQL
-- NO MongoDB
-- NO Redis
-- NO external database
-- NO external cache server
-
-All persistent Insbit application data must be stored locally in JSON files.
-
-Temporary runtime state may be stored in Node.js memory using "Map", "Set", or similar structures.
+> **Privacy first.** Insbit does not bypass private Instagram accounts, authentication,
+> CAPTCHAs, rate limits, or access controls. It only displays what its configured data
+> source legitimately makes available, and it never interacts with the accounts it looks up.
 
 ---
 
-2. Core Privacy Rule
+## Table of contents
 
-Insbit must only display information that its configured data source legitimately makes available.
-
-Insbit must NOT:
-
-- Access private Instagram content.
-- Bypass authentication.
-- Bypass CAPTCHA or anti-bot systems.
-- Circumvent rate limits or access restrictions.
-- Obtain private email addresses or phone numbers.
-- Obtain passwords, tokens, or credentials.
-- Send follows, likes, comments, DMs, or other interactions to Instagram accounts.
-- Attempt to reveal information intentionally hidden by Instagram.
-
-"Anonymous" means that searching through Insbit does not cause Insbit to interact with the Instagram account.
-
----
-
-3. Technology Stack
-
-Use:
-
-- Node.js
-- TypeScript
-- discord.js
-- Zod
-- Pino
-- dotenv
-- ESLint
-- Prettier
-- Vitest or Jest
-
-Storage:
-
-JSON files only
-
-Do NOT install or configure:
-
-PostgreSQL
-MySQL
-MongoDB
-Redis
-Prisma
-Mongoose
-Sequelize
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Discord application setup](#discord-application-setup)
+- [Inviting the bot](#inviting-the-bot)
+- [Environment variables](#environment-variables)
+- [Provider configuration](#provider-configuration)
+- [Commands](#commands)
+- [GUI navigation](#gui-navigation)
+- [JSON storage & data directory](#json-storage--data-directory)
+- [Cache behavior](#cache-behavior)
+- [Rate limiting](#rate-limiting)
+- [Backup](#backup)
+- [Docker deployment](#docker-deployment)
+- [Scripts](#scripts)
+- [Testing](#testing)
+- [Troubleshooting](#troubleshooting)
+- [Privacy limitations](#privacy-limitations)
 
 ---
 
-4. Project Structure
+## Features
 
-Use this structure:
-
-insbit/
-│
-├── src/
-│   ├── index.ts
-│   │
-│   ├── config/
-│   │   └── env.ts
-│   │
-│   ├── discord/
-│   │   ├── client.ts
-│   │   │
-│   │   ├── commands/
-│   │   │   └── instagram.ts
-│   │   │
-│   │   ├── components/
-│   │   │   ├── profileView.ts
-│   │   │   ├── postsView.ts
-│   │   │   ├── followingView.ts
-│   │   │   └── errorView.ts
-│   │   │
-│   │   └── handlers/
-│   │       ├── buttonHandler.ts
-│   │       └── interactionHandler.ts
-│   │
-│   ├── instagram/
-│   │   ├── provider.ts
-│   │   ├── types.ts
-│   │   ├── validator.ts
-│   │   └── providers/
-│   │       └── authorizedProvider.ts
-│   │
-│   ├── services/
-│   │   ├── profileService.ts
-│   │   ├── postsService.ts
-│   │   └── followingService.ts
-│   │
-│   ├── storage/
-│   │   ├── jsonStore.ts
-│   │   ├── profilesStore.ts
-│   │   ├── sessionsStore.ts
-│   │   └── settingsStore.ts
-│   │
-│   ├── cache/
-│   │   └── memoryCache.ts
-│   │
-│   ├── security/
-│   │   ├── rateLimiter.ts
-│   │   └── sessionSecurity.ts
-│   │
-│   └── utils/
-│       ├── logger.ts
-│       ├── pagination.ts
-│       └── errors.ts
-│
-├── data/
-│   ├── profiles.json
-│   ├── sessions.json
-│   ├── settings.json
-│   └── stats.json
-│
-├── tests/
-│
-├── .env
-├── .env.example
-├── .gitignore
-├── package.json
-├── tsconfig.json
-├── eslint.config.js
-├── prettier.config.js
-├── Dockerfile
-└── README.md
+- `/instagram <username>` slash command with `@` / case normalization and validation.
+- Polished **profile embed** with avatar, display name, follower/following/post counts,
+  verification, category, website, bio and a link to the public profile.
+- Interactive **buttons** (no extra commands needed):
+  - 📷 **View All Posts** — paginated posts with images, captions, dates and permalinks.
+  - 👥 **View Following** — paginated list of public accounts with bios and links.
+  - 🔗 **Open Instagram** — a link button to the public profile.
+  - 🔄 **Refresh** — re-fetch from the data source, bypassing cache.
+- **Pagination** (posts: 5/page, following: 10/page) with disabled prev/next at the edges.
+- **Session security** — every button re-verifies ownership and expiry. Another user
+  clicking your buttons gets a friendly refusal; session contents are never exposed.
+- **Atomic, serialized JSON writes** — temp file + rename, with a per-file write queue so
+  concurrent interactions can never corrupt storage.
+- **In-memory TTL cache** so button clicks never hammer the data source.
+- **In-memory rate limiting** — per Discord user and a global provider bucket.
+- **Automatic cleanup** — expired profiles and sessions are pruned on a timer.
+- **Rotating backups** of JSON data.
+- **Dosco-powered** — one configurable data source, optional key, no code changes to enable.
+- **45+ unit tests** covering storage, cache, rate limiting, sessions, pagination,
+  validation, the provider and the Discord views.
 
 ---
 
-5. JSON Storage
+## Requirements
 
-All persistent application information must live inside:
-
-data/
-
-Example:
-
-data/
-├── profiles.json
-├── sessions.json
-├── settings.json
-└── stats.json
-
-Create these automatically if they don't exist.
-
-Example "profiles.json":
-
-{
-  "profiles": {}
-}
-
-Example:
-
-{
-  "profiles": {
-    "example": {
-      "username": "example",
-      "displayName": "Example User",
-      "biography": "Building cool things.",
-      "profilePictureUrl": "https://...",
-      "followers": 12000,
-      "following": 321,
-      "postsCount": 45,
-      "verified": false,
-      "website": null,
-      "profileUrl": "https://instagram.com/example/",
-      "retrievedAt": "2026-10-03T12:00:00.000Z"
-    }
-  }
-}
+- **Node.js 20 or newer** (developed and tested on Node 22).
+- A **Discord bot application** (token + client ID).
+- A **Dosco data source** (`DOSCO_BASE_URL`) — see
+  [Provider configuration](#provider-configuration).
+- A **persistent filesystem** for `data/` (required in production).
 
 ---
 
-6. JSON Store Implementation
+## Installation
 
-Create a reusable JSON storage service.
-
-Example API:
-
-interface JsonStore<T> {
-  read(): Promise<T>;
-  write(data: T): Promise<void>;
-  update(updater: (data: T) => T | Promise<T>): Promise<T>;
-}
-
-Use asynchronous filesystem operations.
-
-Use:
-
-fs/promises
-
-Do NOT block the Node.js event loop with synchronous file operations during normal requests.
-
----
-
-7. Atomic JSON Writes
-
-Do not directly overwrite the JSON file while it may be accessed by another operation.
-
-Use an atomic-write strategy:
-
-Read existing JSON
-       ↓
-Modify in memory
-       ↓
-Write temporary file
-       ↓
-Rename temporary file
-       ↓
-Original file replaced
-
-For example:
-
-profiles.json
-profiles.json.tmp
-
-Write the new data to ".tmp", then rename it to "profiles.json".
-
-This reduces the chance of corrupting the JSON file if the process crashes during a write.
-
----
-
-8. Prevent Concurrent Write Problems
-
-Multiple Discord interactions may happen simultaneously.
-
-Implement a lightweight per-file write queue.
-
-Example concept:
-
-Request A ─┐
-Request B ─┼──► JSON write queue ──► profiles.json
-Request C ─┘
-
-Do not allow simultaneous writes to the same JSON file.
-
-A simple promise-based queue is sufficient.
-
-Do NOT introduce Redis or a database just for this.
-
----
-
-9. Temporary Runtime Cache
-
-Since Redis is forbidden, use an in-memory cache.
-
-Example:
-
-const profileCache = new Map<string, CachedProfile>();
-
-Each cached item should have:
-
-interface CachedProfile<T> {
-  data: T;
-  expiresAt: number;
-}
-
-Example:
-
-Memory
-│
-├── profile:example
-├── profile:nasa
-├── posts:example
-└── following:example
-
-When the bot restarts, this cache disappears.
-
-That is intentional.
-
-Persistent data belongs in JSON.
-
----
-
-10. Cache Strategy
-
-Flow:
-
-User searches username
-        │
-        ▼
-Memory cache?
-   │          │
-  YES         NO
-   │          │
-   ▼          ▼
-Return      profiles.json?
-cached          │
-data        ┌───┴───┐
-            │       │
-           YES      NO
-            │       │
-            ▼       ▼
-          Return   Provider
-          stored   request
-          data       │
-                     ▼
-                Save JSON
-                     │
-                     ▼
-                Memory cache
-
-Do not make an external provider request every time someone clicks a button.
-
----
-
-11. Main Command
-
-Create:
-
-/instagram <username>
-
-Example:
-
-/instagram username:nasa
-
-Normalize:
-
-nasa
-@nasa
-
-into:
-
-nasa
-
-Validate usernames before processing.
-
----
-
-12. Profile GUI
-
-After the search, display a polished Discord Embed.
-
-Example layout:
-
-┌─────────────────────────────────┐
-│         Instagram Profile       │
-│                                 │
-│          [Profile Photo]        │
-│                                 │
-│             @username           │
-│          Display Name           │
-│                                 │
-│ Followers      Following        │
-│  12.4K           321            │
-│                                 │
-│ Bio                             │
-│ Building cool things 🚀        │
-│                                 │
-│ [📷 View All Posts]             │
-│ [👥 View Following]             │
-│ [🔗 Open Instagram]             │
-│ [🔄 Refresh]                    │
-└─────────────────────────────────┘
-
-Use Discord buttons rather than requiring additional commands.
-
----
-
-13. Profile Information
-
-Show when available:
-
-- Profile picture
-- Username
-- Display name
-- Biography
-- Followers
-- Following
-- Post count
-- Verification status
-- Website
-- Public category
-- Instagram profile URL
-
-If unavailable:
-
-Not available
-
-Never invent information.
-
----
-
-14. View All Posts
-
-Button:
-
-📷 View All Posts
-
-opens a paginated GUI.
-
-Example:
-
-@username — Posts
-
-[Post image]
-
-Caption:
-Example caption...
-
-Post 1 / 20
-
-[◀ Previous] [Next ▶]
-[🔙 Profile]
-
-Support:
-
-- Image posts
-- Supported video previews
-- Carousel posts where the provider supports them
-- Caption
-- Public date
-- Public permalink
-
-Only display/download media when permitted by the configured data source.
-
----
-
-15. Following GUI
-
-Button:
-
-👥 View Following
-
-opens:
-
-@username — Following
-
-👤 @person1
-Person One
-"Photographer & creator"
-
-👤 @person2
-Person Two
-"Developer"
-
-👤 @person3
-Person Three
-"Travel"
-
-[◀ Previous] [Next ▶]
-[🔙 Profile]
-
-Each following entry may contain:
-
-- Profile picture
-- Username
-- Display name
-- Public bio
-- Public profile URL
-
-Do not display private contact information.
-
----
-
-16. Pagination
-
-Do not load thousands of accounts into one Discord message.
-
-Use pagination.
-
-Recommended page size:
-
-10 users per page
-
-Posts can use a smaller page size if necessary.
-
-Example:
-
-Page 1 / 20
-
-Buttons:
-
-◀ Previous
-Next ▶
-🔙 Profile
-
-Disable Previous on the first page.
-
-Disable Next on the final page.
-
----
-
-17. Session Storage
-
-Sessions should be stored in:
-
-data/sessions.json
-
-Example:
-
-{
-  "sessions": {
-    "abc123": {
-      "sessionId": "abc123",
-      "discordUserId": "123456789",
-      "username": "example",
-      "view": "profile",
-      "page": 1,
-      "createdAt": "2026-10-03T12:00:00.000Z",
-      "expiresAt": "2026-10-03T13:00:00.000Z"
-    }
-  }
-}
-
-For very short-lived UI state, you may additionally maintain an in-memory Map.
-
----
-
-18. Session Security
-
-Every interaction must verify:
-
-Who created this session?
-
-If User A creates a session, User B clicking its buttons should receive:
-
-This Insbit session belongs to another user.
-
-Run /instagram yourself to create a new session.
-
-Do not expose session contents.
-
-Sessions must expire automatically.
-
----
-
-19. Custom IDs
-
-Use compact custom IDs:
-
-insbit:profile:<sessionId>
-insbit:posts:<sessionId>:prev
-insbit:posts:<sessionId>:next
-insbit:following:<sessionId>:prev
-insbit:following:<sessionId>:next
-insbit:refresh:<sessionId>
-
-Never put API keys, private information, or large JSON data into Discord custom IDs.
-
----
-
-20. Memory Rate Limiter
-
-Because Redis is not being used, implement rate limiting in memory.
-
-Example:
-
-const requests = new Map<string, number[]>();
-
-Track:
-
-Discord user ID
-timestamps
-
-Example configuration:
-
-USER_REQUEST_LIMIT=20
-USER_REQUEST_WINDOW_SECONDS=60
-
-When the process restarts, rate-limit state resets.
-
-That is acceptable for this JSON-only version.
-
----
-
-21. Global Provider Rate Limit
-
-Also maintain a simple in-memory provider limiter.
-
-Example:
-
-Provider requests
-      │
-      ▼
-In-memory limiter
-      │
-      ├── Allowed
-      │
-      └── Delayed/rejected
-
-Never attempt to circumvent an external provider's rate limit.
-
----
-
-22. Instagram Provider Interface
-
-Keep the provider independent from the rest of the application.
-
-interface InstagramProvider {
-  getProfile(username: string): Promise<InstagramProfileResult>;
-
-  getPosts(
-    username: string,
-    cursor?: string
-  ): Promise<InstagramPostsResult>;
-
-  getFollowing(
-    username: string,
-    cursor?: string
-  ): Promise<InstagramFollowingResult>;
-}
-
-The provider must only use a legitimate/authorized data source.
-
----
-
-23. Profile Type
-
-interface InstagramProfile {
-  username: string;
-  displayName?: string;
-  biography?: string;
-  profilePictureUrl?: string;
-
-  followers?: number;
-  following?: number;
-  postsCount?: number;
-
-  verified?: boolean;
-  category?: string;
-  website?: string;
-
-  profileUrl: string;
-
-  retrievedAt: string;
-}
-
----
-
-24. Post Type
-
-interface InstagramPost {
-  id: string;
-
-  mediaType:
-    | "image"
-    | "video"
-    | "carousel"
-    | "unknown";
-
-  mediaUrl?: string;
-  thumbnailUrl?: string;
-
-  caption?: string;
-  permalink?: string;
-  publishedAt?: string;
-
-  retrievedAt: string;
-}
-
----
-
-25. Following User Type
-
-interface InstagramFollowingUser {
-  username: string;
-  displayName?: string;
-  biography?: string;
-  profilePictureUrl?: string;
-  profileUrl: string;
-}
-
----
-
-26. Error Handling
-
-Create:
-
-InvalidUsernameError
-ProfileNotFoundError
-PrivateProfileError
-ProviderUnavailableError
-ProviderRateLimitError
-DataUnavailableError
-SessionExpiredError
-UnauthorizedSessionError
-
-Display friendly messages.
-
-Example:
-
-❌ Profile not found
-
-No supported public profile information was returned
-for @username.
-
-Provider failure:
-
-⚠️ Data temporarily unavailable
-
-Insbit couldn't retrieve this profile right now.
-Please try again later.
-
-Private profile:
-
-🔒 Private Profile
-
-Insbit can only display information legitimately
-available through its configured data source.
-
----
-
-27. JSON Files
-
-profiles.json
-
-Stores recently retrieved profiles.
-
-sessions.json
-
-Stores active/short-lived sessions if persistence is required.
-
-settings.json
-
-Stores bot settings.
-
-Example:
-
-{
-  "cacheTTL": 900,
-  "postsPerPage": 5,
-  "followingPerPage": 10
-}
-
-stats.json
-
-Optional bot statistics:
-
-{
-  "totalSearches": 0,
-  "totalProfilesViewed": 0,
-  "lastUpdated": null
-}
-
-Do not store unnecessary personal information.
-
----
-
-28. Automatic JSON Cleanup
-
-Because there is no database, implement cleanup.
-
-For example:
-
-profiles.json
-      │
-      ▼
-Remove entries older than configured retention period
-
-Similarly remove expired sessions.
-
-Make retention configurable:
-
-PROFILE_RETENTION_SECONDS=86400
-SESSION_RETENTION_SECONDS=3600
-
-Do not retain information indefinitely by default.
-
----
-
-29. JSON Backup Safety
-
-Before major storage modifications, optionally maintain:
-
-data/backups/
-
-Example:
-
-data/backups/profiles-2026-10-03.json
-
-However, don't create unlimited backups.
-
-Keep only a configurable number.
-
----
-
-30. Data Directory Safety
-
-Add:
-
-data/
-
-to ".gitignore" if the JSON files may contain runtime/user data.
-
-Commit only:
-
-data/.gitkeep
-
-and optionally example files:
-
-data/examples/profiles.example.json
-
-Never commit API keys or private runtime data.
-
----
-
-31. Environment Variables
-
-Use:
-
-DISCORD_TOKEN=
-DISCORD_CLIENT_ID=
-DISCORD_GUILD_ID=
-
-INSTAGRAM_PROVIDER_URL=
-INSTAGRAM_PROVIDER_API_KEY=
-
-USER_REQUEST_LIMIT=20
-USER_REQUEST_WINDOW_SECONDS=60
-
-PROFILE_CACHE_TTL=900
-POST_CACHE_TTL=600
-FOLLOWING_CACHE_TTL=600
-
-PROFILE_RETENTION_SECONDS=86400
-SESSION_RETENTION_SECONDS=3600
-
-NODE_ENV=production
-LOG_LEVEL=info
-
-No:
-
-DATABASE_URL
-REDIS_URL
-
-because this project does not use either.
-
----
-
-32. Memory vs JSON
-
-Use this rule:
-
-JSON = persistent
-
-Store:
-
-profiles
-sessions
-settings
-statistics
-
-Memory = temporary
-
-Store:
-
-active cache
-rate limits
-write queues
-temporary provider state
-
-When Node.js restarts:
-
-Memory → cleared
-JSON → preserved
-
-This behavior is intentional.
-
----
-
-33. Performance
-
-Because JSON files are being used, do not rewrite massive JSON files for every button click.
-
-For example:
-
-BAD:
-
-Button click
-   ↓
-Rewrite entire profiles.json
-
-Prefer:
-
-Button click
-   ↓
-Read/cache existing data
-   ↓
-Only write when persistent data actually changes
-
-For a small/medium bot this is sufficient.
-
-If the project eventually becomes very large, document that JSON storage may become a bottleneck.
-
-Do not silently introduce a database.
-
----
-
-34. Concurrency
-
-Implement a JSON file write queue.
-
-Concept:
-
-class JsonWriteQueue {
-  private queues = new Map<string, Promise<void>>();
-
-  async enqueue(
-    file: string,
-    operation: () => Promise<void>
-  ): Promise<void> {
-    // serialize writes per file
-  }
-}
-
-This prevents:
-
-Request A ─┐
-Request B ─┼──► simultaneous writes ──► corrupted JSON
-Request C ─┘
-
-Instead:
-
-Request A
-   ↓
-Request B
-   ↓
-Request C
-   ↓
-JSON
-
----
-
-35. GUI Design Requirements
-
-The UI must feel modern and polished.
-
-Use:
-
-- Discord Embeds
-- Buttons
-- Pagination
-- Profile thumbnails
-- Clear section headings
-- Consistent footer
-- Error states
-- Loading states where useful
-
-Loading message:
-
-🔎 Looking up @username...
-
-Then replace it with the profile GUI.
-
----
-
-36. Main Navigation
-
-Profile:
-
-📷 View All Posts
-👥 View Following
-🔗 Open Instagram
-🔄 Refresh
-
-Posts:
-
-◀ Previous
-Next ▶
-🔙 Profile
-
-Following:
-
-◀ Previous
-Next ▶
-🔙 Profile
-
-All navigation should happen through Discord components.
-
----
-
-37. Open Instagram
-
-The button should link to the normal public profile:
-
-https://www.instagram.com/<username>/
-
-Only construct URLs from validated usernames.
-
-Do not use this button to trigger any automatic interaction.
-
----
-
-38. Security
-
-Implement:
-
-- Username validation
-- Session ownership validation
-- Rate limiting
-- Input validation with Zod
-- Safe JSON parsing
-- Atomic JSON writes
-- Serialized writes
-- API-key protection
-- Error sanitization
-- Discord permission minimization
-
-Never use:
-
-eval()
-new Function()
-
-on external data.
-
-Never expose provider credentials.
-
----
-
-39. Testing
-
-Test:
-
-JSON storage
-
-- File creation
-- Read
-- Write
-- Update
-- Corrupted JSON handling
-- Atomic writes
-- Concurrent writes
-
-Cache
-
-- Cache hit
-- Cache miss
-- Expiration
-
-Rate limiting
-
-- Allowed request
-- Rate-limited request
-- Window expiration
-
-Sessions
-
-- Valid session
-- Expired session
-- Wrong Discord user
-- Missing session
-
-Pagination
-
-- First page
-- Middle page
-- Last page
-- Previous
-- Next
-
-Provider
-
-- Valid profile
-- Missing fields
-- Private profile
-- Not found
-- Provider error
-
----
-
-40. Commands
-
-Initially implement only:
-
-/instagram <username>
-
-Optional administrative commands can be added later.
-
-Do not create unnecessary commands.
-
----
-
-41. Deployment
-
-The bot should run on a normal Node.js server/VPS.
-
-Example:
-
+```bash
+# 1. Install dependencies
 npm install
+
+# 2. Configure environment
+cp env.template .env
+#   then edit .env (see Environment variables)
+
+# 3. Build and run
 npm run build
 npm start
+```
 
-Data remains in:
+For development with auto-reload:
 
-./data/
-
-Therefore the deployment must use persistent disk storage.
-
-If Docker is used, mount:
-
-./data:/app/data
-
-so JSON survives container restarts.
+```bash
+npm run dev
+```
 
 ---
 
-42. Backup
+## Discord application setup
 
-Because JSON is the persistent storage, explain in README that:
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
+   and create a new application.
+2. Open the **Bot** tab and click **Reset Token**, then copy the token into
+   `DISCORD_TOKEN`.
+3. Copy the **Application ID** from the **General Information** tab into
+   `DISCORD_CLIENT_ID`.
+4. (Optional, recommended for testing) Copy a server's ID into `DISCORD_GUILD_ID`
+   so commands register instantly instead of globally.
+5. Register the slash commands:
 
+   ```bash
+   npm run register
+   ```
+
+   - With `DISCORD_GUILD_ID` set, commands appear in that guild immediately.
+   - Without it, global commands can take up to an hour to appear.
+
+Insbit requests **only the `Guilds` intent** — no privileged intents are needed, and it
+does not read message content.
+
+---
+
+## Inviting the bot
+
+In the Developer Portal, open **OAuth2 → URL Generator**:
+
+- **Scopes:** `bot`, `applications.commands`
+- **Bot permissions:** `Send Messages`, `Embed Links`, `Use External Emojis`
+  (permissions are intentionally minimal).
+
+Open the generated URL and add Insbit to your server.
+
+---
+
+## Environment variables
+
+Copy `env.template` to `.env` and fill in the values.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DISCORD_TOKEN` | — | **Required.** Bot token. |
+| `DISCORD_CLIENT_ID` | — | **Required.** Application ID. |
+| `DISCORD_GUILD_ID` | — | Optional guild for instant command registration. |
+| `DOSCO_BASE_URL` | — | **Dosco** base URL. Required to enable data lookups. |
+| `DOSCO_API_KEY` | — | Optional Dosco key. Sent automatically once set. |
+| `DOSCO_AUTH_HEADER` | `Authorization` | Header the key is sent in. |
+| `DOSCO_AUTH_SCHEME` | `Bearer` | Prefix for the key (blank for a raw key). |
+| `DOSCO_KEY_QUERY_PARAM` | — | If set, send the key as this query param instead. |
+| `DOSCO_PROFILE_PATH` | `/profile` | Profile endpoint path. |
+| `DOSCO_POSTS_PATH` | `/posts` | Posts endpoint path. |
+| `DOSCO_FOLLOWING_PATH` | `/following` | Following endpoint path. |
+| `DOSCO_USERNAME_PARAM` | `username` | Username query parameter name. |
+| `DOSCO_CURSOR_PARAM` | `cursor` | Pagination cursor parameter name. |
+| `DOSCO_TIMEOUT_MS` | `10000` | Per-request timeout. |
+| `USER_REQUEST_LIMIT` | `20` | Per-user requests allowed per window. |
+| `USER_REQUEST_WINDOW_SECONDS` | `60` | Per-user rate-limit window. |
+| `PROVIDER_REQUEST_LIMIT` | `60` | Global outbound provider requests per window. |
+| `PROVIDER_REQUEST_WINDOW_SECONDS` | `60` | Global provider rate-limit window. |
+| `PROFILE_CACHE_TTL` | `900` | Profile cache TTL (seconds). |
+| `POST_CACHE_TTL` | `600` | Posts cache TTL (seconds). |
+| `FOLLOWING_CACHE_TTL` | `600` | Following cache TTL (seconds). |
+| `PROFILE_RETENTION_SECONDS` | `86400` | How long stored profiles are kept. |
+| `SESSION_RETENTION_SECONDS` | `3600` | Session lifetime (also refreshed on interaction). |
+| `MAX_BACKUPS` | `5` | Number of rotating backups kept per file. |
+| `NODE_ENV` | `production` | `development` \| `test` \| `production`. |
+| `LOG_LEVEL` | `info` | Pino log level. |
+| `DATA_DIR` | `./data` | Directory for JSON storage. |
+
+There is deliberately **no `DATABASE_URL` and no `REDIS_URL`** — Insbit uses neither.
+
+---
+
+## Provider configuration
+
+Insbit talks to **Dosco and only Dosco** (`src/instagram/providers/doscoProvider.ts`).
+There is no secondary or fallback source. The provider is abstracted behind
+`InstagramProvider`, so the rest of the app never knows how data is fetched.
+
+### Enabling Dosco
+
+Set `DOSCO_BASE_URL` and you are done — **no key is required to start**. The key is
+optional today: if you add `DOSCO_API_KEY` later, Insbit sends it automatically using
+`DOSCO_AUTH_HEADER` / `DOSCO_AUTH_SCHEME` (or as a query parameter when
+`DOSCO_KEY_QUERY_PARAM` is set). No code change is needed.
+
+Because Dosco's exact paths and parameter names can differ per deployment, every part of
+the request is configurable via the `DOSCO_*` variables in the table above. Point them at
+the paths your Dosco instance exposes.
+
+The provider expects a JSON API with these endpoints:
+
+| Endpoint | Query | Response |
+| --- | --- | --- |
+| `GET /profile` | `username` | Profile object (see below) |
+| `GET /posts` | `username`, `cursor?` | `{ posts: [...], cursor?, hasMore? }` |
+| `GET /following` | `username`, `cursor?` | `{ users: [...], cursor?, hasMore? }` |
+
+Profile payload fields (all optional except `username`):
+
+```jsonc
+{
+  "username": "nasa",
+  "displayName": "NASA",
+  "biography": "Explore the universe",
+  "profilePictureUrl": "https://...",
+  "followers": 12400,
+  "following": 321,
+  "postsCount": 45,
+  "verified": true,
+  "category": "Government Organization",
+  "website": "https://nasa.gov",
+  "profileUrl": "https://www.instagram.com/nasa/",
+  "isPrivate": false
+}
+```
+
+Post payload fields: `id`, `mediaType` (`image`/`video`/`carousel`), `mediaUrl`,
+`thumbnailUrl`, `caption`, `permalink`, `publishedAt`.
+
+Following-user payload fields: `username`, `displayName`, `biography`,
+`profilePictureUrl`, `profileUrl`.
+
+**If `DOSCO_BASE_URL` is not set**, Insbit starts normally but reports data as
+unavailable. It will **never** fall back to another or unauthorized scraper.
+
+Upstream `404`, `429`, `401/403`, timeouts and malformed payloads are translated into
+friendly Discord messages; raw upstream errors and credentials are never shown or logged.
+
+To retarget the request shape without touching code, adjust the `DOSCO_*` environment
+variables. If Dosco's response uses different field names, edit the mapping in
+`src/instagram/providers/doscoProvider.ts`.
+
+---
+
+## Commands
+
+| Command | Description |
+| --- | --- |
+| `/instagram <username>` | Look up public profile information for a username. |
+
+Usernames are normalized (`@NASA` → `nasa`) and validated (letters, digits, `.`, `_`,
+max 30 chars) before use. While the lookup runs, Insbit shows
+`🔎 Looking up @username…`, then replaces it with the profile GUI.
+
+---
+
+## GUI navigation
+
+```
+/instagram username
+        │
+        ▼
+   🔎 Loading…
+        │
+        ▼
+┌──────────────────────────────────┐
+│ Insbit · Instagram Profile       │
+│        [Profile Photo]           │
+│ @username · Display Name ✔️      │
+│ Followers / Following / Posts    │
+│ Bio · Category · Website         │
+│ [📷 View All Posts] [👥 View Following] │
+│ [🔗 Open Instagram] [🔄 Refresh] │
+└──────────────────────────────────┘
+        │                    │
+        ▼                    ▼
+   ALL POSTS            FOLLOWING
+   ◀ Next ▶ 🔙 Profile  ◀ Next ▶ 🔙 Profile
+```
+
+- **Previous** is disabled on the first page; **Next** is disabled on the last page.
+- The page indicator shows `current / total`.
+- **🔙 Profile** returns to the profile view.
+
+Custom IDs are compact and non-sensitive, e.g. `insbit:posts:<sessionId>:next`. No keys
+or large payloads are ever placed in a custom ID.
+
+---
+
+## JSON storage & data directory
+
+All persistent data lives in `data/`:
+
+```
 data/
+├── profiles.json    # recently retrieved public profiles
+├── sessions.json    # active short-lived sessions
+├── settings.json    # bot settings (cacheTTL, postsPerPage, followingPerPage)
+├── stats.json       # usage statistics
+└── backups/         # rotating backups (created automatically)
+```
 
-must be backed up.
+Files are created automatically on first use. Example `settings.json`:
 
-A simple backup command can copy:
+```json
+{ "cacheTTL": 900, "postsPerPage": 5, "followingPerPage": 10 }
+```
 
-data/*.json
+### Atomic, serialized writes
 
-to a backup directory.
+Writes follow a **temp-file + rename** strategy:
 
----
+```
+read → modify in memory → write *.json.tmp → rename over *.json
+```
 
-43. README Requirements
+Rename is atomic on a single filesystem, so a crash mid-write cannot leave a half-written
+document. A **per-file promise queue** serializes writes so concurrent Discord
+interactions never interleave.
 
-Document:
-
-- Installation
-- Node.js version
-- Discord application setup
-- Bot invitation
-- Environment variables
-- JSON storage
-- Data directory
-- Provider configuration
-- Commands
-- GUI navigation
-- Cache behavior
-- Rate limiting
-- Backup
-- Docker deployment
-- Troubleshooting
-- Privacy limitations
-
-Explicitly state:
-
-Insbit does not bypass private Instagram accounts,
-authentication, CAPTCHAs, rate limits, or access controls.
+`data/*.json` is git-ignored (it can contain runtime/user data). Only `data/.gitkeep`
+and `data/examples/` are committed.
 
 ---
 
-44. Final User Flow
+## Cache behavior
 
-The final experience must look like:
+```
+lookup → memory cache? ─yes→ return cached
+             │no
+             ▼
+         profiles.json? ─yes→ return stored (and warm the cache)
+             │no
+             ▼
+         provider request → save to JSON → warm cache
+```
 
-User
- │
- │ /instagram username
- ▼
-Insbit
- │
- ▼
-Loading...
- │
- ▼
-┌──────────────────────────────┐
-│ Instagram Profile            │
-│                              │
-│       [Profile Photo]        │
-│                              │
-│          @username           │
-│        Display Name          │
-│                              │
-│ Followers   Following       │
-│  12.4K        321            │
-│                              │
-│ Bio                          │
-│ Building cool things 🚀     │
-│                              │
-│ [📷 View All Posts]          │
-│ [👥 View Following]          │
-│ [🔗 Open Instagram]          │
-│ [🔄 Refresh]                 │
-└──────────────────────────────┘
-          │
-          ├───────────────┐
-          ▼               ▼
-     ALL POSTS        FOLLOWING
-          │               │
-          ▼               ▼
-     Pagination       Pagination
-                          │
-                          ▼
-                    Username
-                    Display Name
-                    Public Bio
+- **Profiles** are cached in memory **and** persisted to `profiles.json`.
+- **Posts** and **following** are cached in memory only (large and short-lived).
+- Memory cache and rate-limit state **reset on restart** — that is intentional.
+  Persistent data stays in JSON.
 
-45. Final Development Instruction
+---
 
-Build the complete project, not just an example.
+## Rate limiting
 
-Do not add PostgreSQL, MySQL, MongoDB, Redis, Prisma, or another database.
+Two in-memory sliding-window limiters (no Redis):
 
-Use local JSON files for persistent storage and Node.js memory for temporary runtime state.
+1. **Per Discord user** — `USER_REQUEST_LIMIT` / `USER_REQUEST_WINDOW_SECONDS`.
+   Exceeding it returns `⏳ You're searching too fast. Try again in Ns.`
+2. **Global provider** — `PROVIDER_REQUEST_LIMIT` / `PROVIDER_REQUEST_WINDOW_SECONDS`,
+   a safety valve so Insbit stays within its data source's allowance and never attempts to
+   circumvent an upstream rate limit.
 
-Implement robust JSON read/write handling, atomic writes, serialized writes, caching, rate limiting, session security, pagination, Discord GUI components, provider abstraction, error handling, tests, and documentation.
+---
 
-The final bot should be clean enough to deploy on a small VPS with only:
+## Backup
 
-Node.js
-Discord bot token
-Configured permitted data source
-Persistent filesystem
+`data/` is the entire persistent state, so **back it up**.
 
-No external database or Redis server should be required.
+A rotating backup is written to `data/backups/<name>-<YYYY-MM-DD>.json` before profile
+storage is modified; at most `MAX_BACKUPS` files are kept per source file.
+
+Manual backup:
+
+```bash
+mkdir -p backups && cp data/*.json backups/
+```
+
+Restore by copying the files back into `data/`.
+
+---
+
+## Docker deployment
+
+```bash
+docker build -t insbit .
+docker run -d --name insbit \
+  --env-file .env \
+  -v "$(pwd)/data:/app/data" \
+  insbit
+```
+
+The `-v ./data:/app/data` mount is **required** so JSON data survives container restarts.
+The image is a multi-stage build: TypeScript is compiled in the builder, and only
+production dependencies plus `dist/` ship in the runtime image.
+
+---
+
+## Scripts
+
+| Script | Purpose |
+| --- | --- |
+| `npm run dev` | Run with auto-reload (tsx watch). |
+| `npm run build` | Compile TypeScript to `dist/`. |
+| `npm start` | Run the compiled bot. |
+| `npm run register` | Register slash commands with Discord. |
+| `npm run typecheck` | Type-check without emitting. |
+| `npm test` | Run the Vitest suite. |
+| `npm run lint` | Lint with ESLint. |
+| `npm run format` | Format with Prettier. |
+
+---
+
+## Testing
+
+```bash
+npm test
+```
+
+Coverage includes: JSON store (creation, read, write, update, corrupt-file recovery,
+atomic writes, 50 concurrent writes), memory cache (hit/miss/expiry/prefix invalidation),
+rate limiter (allow/block/window expiry/per-user isolation), sessions (valid, wrong user,
+missing), pagination (first/middle/last/clamping), username validation, the provider
+(valid/missing fields/private/not-found/429/500/malformed), and the Discord views
+(embeds, buttons, disabled states, error sanitization).
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| Slash commands don't appear | Run `npm run register`. Set `DISCORD_GUILD_ID` for instant registration. |
+| `Invalid environment configuration` on start | `DISCORD_TOKEN` / `DISCORD_CLIENT_ID` are missing or malformed. |
+| `⚠️ Data temporarily unavailable` | `DOSCO_BASE_URL` is unset, or Dosco is down/rate-limited. |
+| `🔒 Private Profile` | The source reported the profile as private — Insbit will not bypass this. |
+| `🔒 This Insbit session belongs to another user` | Run `/instagram` yourself; sessions are per-user. |
+| `⌛ This Insbit session has expired` | Sessions expire after `SESSION_RETENTION_SECONDS`; start a new lookup. |
+| Profiles vanish after restart | Expected — the memory cache is cleared; `data/*.json` persists. |
+| Data lost after container restart | Mount a volume: `-v ./data:/app/data`. |
+| JSON looks corrupted | Insbit recovers by falling back to defaults and logs the error; restore from `data/backups/`. |
+
+---
+
+## Privacy limitations
+
+Insbit **does not** and **will not**:
+
+- Access private Instagram content.
+- Bypass authentication, CAPTCHAs, or anti-bot systems.
+- Circumvent rate limits or access restrictions.
+- Obtain private email addresses, phone numbers, passwords, tokens, or credentials.
+- Send follows, likes, comments, DMs, or any interaction to Instagram accounts.
+- Reveal information Instagram intentionally hides.
+
+"Anonymous" here means that **searching through Insbit does not cause Insbit to interact
+with the Instagram account.** Only information the configured data source legitimately
+exposes publicly is displayed, and unavailable fields are shown as **"Not available"** —
+never invented.
+
+---
+
+## Performance note
+
+For a small/medium bot, JSON storage is more than sufficient, and Insbit only writes when
+persistent data actually changes (button clicks read from cache). If the project grows
+very large, JSON files may become a bottleneck — at that point, consider a database
+**explicitly**, rather than silently introducing one.
